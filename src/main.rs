@@ -1,55 +1,61 @@
 use std::fs;
-
 mod stack;
 use stack::Stack;
 
-const CODEFILE: &str = "src/code.txt";
-
-pub struct Registers {
-    _v0: i8,
-    _v1: i8,
-    _vf: i8,
-    _i: usize,
-    pc: usize,
-}
+const PROGRAM: &str = "./programs/pong.rom";
+const PROGRAM_START: usize = 0x200;
+const MEMORY_SIZE: usize = 4096;
+const SCREEN_SIZE: usize = 2048;
 
 pub struct VirtualMachine {
-    instructions: Vec<String>,
-    registers: Registers,
-    _stack: Stack<usize>,
+    memory: [u8; MEMORY_SIZE],
+    _stack: Stack<u16>,
+    _gfx: [u8; SCREEN_SIZE],
+    _key: [u8; 16],
+    pc: usize,
+    _v: [u8; 16],
+    _i: u16,
+    _delay_timer: u8,
+    _sound_times: u8,
 }
 
 impl VirtualMachine {
-    fn new(instructions: Vec<String>) -> VirtualMachine {
+    fn new() -> VirtualMachine {
         VirtualMachine {
-            instructions: instructions,
-            registers: Registers {
-                _v0: 0,
-                _v1: 0,
-                _vf: 0,
-                _i: 0,
-                pc: 0,
-            },
+            memory: [0; MEMORY_SIZE],
             _stack: Stack::new(),
+            _gfx: [0; SCREEN_SIZE],
+            _key: [0; 16],
+            pc: PROGRAM_START,
+            _v: [0; 16],
+            _i: 0,
+            _delay_timer: 0,
+            _sound_times: 0,
+        }
+    }
+
+    fn load_program(&mut self, fp: &str) {
+        let bytes = fs::read(fp).unwrap();
+        // Make sure endianness isn't fucked
+        for (pos, byte) in bytes.iter().enumerate() {
+            self.memory[PROGRAM_START + pos] = *byte;
         }
     }
 
     fn execute(&mut self) {
         loop {
-            let instruction = self.instructions[self.registers.pc].clone();
-            println!("{:?}", instruction);
-            self.registers.pc += 1;
+            let instruction = self.memory[self.pc];
+            if instruction == 0 {
+                break;
+            }
+            println!("{:#02x}", instruction);
+            self.pc += 1;
         }
     }
 }
 
-fn load_program(fp: &str) -> Vec<String> {
-    let code = fs::read_to_string(fp).expect("File read failed!");
-    return code.lines().map(|line| line.to_string()).collect();
-}
-
 fn main() {
-    let program = load_program(CODEFILE);
-    let mut vm = VirtualMachine::new(program);
+    let mut vm = VirtualMachine::new();
+    vm.load_program(PROGRAM);
     vm.execute();
 }
