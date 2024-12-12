@@ -1,18 +1,15 @@
 // A display driver for chip-8 using SDL2
-use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::Canvas;
 use sdl2::video::Window;
 
 pub struct DisplayDriver {
-    context: sdl2::Sdl,
     canvas: Canvas<Window>,
 }
 
 impl DisplayDriver {
-    pub fn new(context: sdl2::Sdl) -> Self {
+    pub fn new(context: &sdl2::Sdl) -> Self {
         let video_subsystem = context.video().unwrap();
         let window = video_subsystem
             .window("Chip-8 Emulator", 64 * 8, 32 * 8)
@@ -23,7 +20,7 @@ impl DisplayDriver {
         canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
         canvas.present();
-        Self { context, canvas }
+        Self { canvas }
     }
 
     pub fn draw(&mut self, display: &[[u8; 64]; 32]) {
@@ -40,22 +37,5 @@ impl DisplayDriver {
             }
         }
         self.canvas.present();
-    }
-
-    pub fn handle_events(&mut self) {
-        for event in self.context.event_pump().unwrap().poll_iter() {
-            match event {
-                Event::Quit { .. } => {
-                    std::process::exit(0);
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => {
-                    std::process::exit(0);
-                }
-                _ => {}
-            }
-        }
     }
 }

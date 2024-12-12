@@ -30,13 +30,6 @@ impl AudioDriver {
             is_active: is_active_clone,
         })?;
 
-        println!(
-            "Actual AudioSpec: freq = {}, channels = {}, samples = {}",
-            device.spec().freq,
-            device.spec().channels,
-            device.spec().samples
-        );
-
         device.resume();
 
         Ok(Self { is_active })

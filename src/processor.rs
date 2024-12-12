@@ -2,7 +2,12 @@ use crate::{
     drivers::{AudioDriver, DisplayDriver},
     stack::Stack,
 };
-use std::{fs, usize};
+use sdl2::{event::Event, keyboard::Keycode};
+use std::{
+    fs, thread,
+    time::{Duration, Instant},
+    usize,
+};
 
 const PROGRAM_START: usize = 0x200;
 const MEMORY_SIZE: usize = 4096;
@@ -34,12 +39,32 @@ fn digit(hex: u16, place: u8) -> usize {
     ((hex & (0xF << offset)) >> offset) as usize
 }
 
+fn parse_key(key: Keycode) -> u8 {
+    match key {
+        Keycode::Num1
+        | Keycode::Num2
+        | Keycode::Num3
+        | Keycode::Num4
+        | Keycode::Num5
+        | Keycode::Num6
+        | Keycode::Num7
+        | Keycode::Num8
+        | Keycode::Num9
+        | Keycode::Num0 => key.into_i32() as u8 - 48,
+        Keycode::A | Keycode::B | Keycode::C | Keycode::D | Keycode::E | Keycode::F => {
+            key.into_i32() as u8 - 87
+        }
+        _ => 0xff,
+    }
+}
+
 pub struct Processor {
     memory: [u8; MEMORY_SIZE],
     stack: Stack<usize>,
     display: [[u8; SCREEN_WIDTH]; SCREEN_HEIGHT],
     display_change: bool,
-    _keyboard: [u8; 16],
+    sdl_context: sdl2::Sdl,
+    keyboard: [u8; 16],
     pc: usize,
     v: [u8; 16],
     i: u16,
@@ -49,12 +74,14 @@ pub struct Processor {
 
 impl Processor {
     pub fn new() -> Self {
+        let sdl_context = sdl2::init().unwrap();
         let mut p = Self {
             memory: [0; MEMORY_SIZE],
             stack: Stack::new(),
             display: [[0; SCREEN_WIDTH]; SCREEN_HEIGHT],
             display_change: false,
-            _keyboard: [0; 16],
+            sdl_context,
+            keyboard: [0; 16],
             pc: PROGRAM_START,
             v: [0; 16],
             i: 0,
@@ -83,18 +110,22 @@ impl Processor {
 
     pub fn run_program(&mut self) {
         println!("Running program...");
-        let sdl_context = sdl2::init().unwrap();
-        let audio_subsystem = sdl_context.audio().unwrap();
+        let target_frame_duration = Duration::from_secs_f64(1.0 / 60.0);
 
-        let mut display_driver = DisplayDriver::new(sdl_context);
+        let audio_subsystem = self.sdl_context.audio().unwrap();
+
+        let mut display_driver = DisplayDriver::new(&self.sdl_context);
         let audio_driver = AudioDriver::new(&audio_subsystem, 480.0, 1.).unwrap();
 
         loop {
+            let frame_start = Instant::now();
+
             let instruction =
                 ((self.memory[self.pc] as u16) << 8) | self.memory[self.pc + 1] as u16;
+
             self.execute_instruction(instruction);
 
-            display_driver.handle_events();
+            self.handle_events();
             if self.display_change {
                 display_driver.draw(&self.display);
                 self.display_change = false;
@@ -116,7 +147,48 @@ impl Processor {
                 audio_driver.toggle();
             }
 
-            // Maintain 60Hz operation
+            // Maintain 60 frames per second
+            let elapsed = frame_start.elapsed();
+            if let Some(remaining) = target_frame_duration.checked_sub(elapsed) {
+                thread::sleep(remaining);
+            }
+        }
+    }
+
+    pub fn handle_events(&mut self) {
+        for event in self.sdl_context.event_pump().unwrap().poll_iter() {
+            match event {
+                Event::Quit { .. } => {
+                    std::process::exit(0);
+                }
+                Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => {
+                    std::process::exit(0);
+                }
+                // Handle key presses for all hex keys
+                Event::KeyDown {
+                    keycode: Some(key), ..
+                } => {
+                    let key = parse_key(key);
+                    if key == 0xff {
+                        continue;
+                    }
+                    self.keyboard = [0; 16];
+                    self.keyboard[key as usize] = 1;
+                }
+                Event::KeyUp {
+                    keycode: Some(key), ..
+                } => {
+                    let key = parse_key(key);
+                    if key == 0xff {
+                        continue;
+                    }
+                    self.keyboard = [0; 16];
+                }
+                _ => {}
+            }
         }
     }
 
@@ -197,7 +269,7 @@ impl Processor {
 
     /// Jump to address NNN.
     fn op_1nnn(&mut self, i: u16) {
-        self.pc = PROGRAM_START + (i as usize & 0xfff);
+        self.pc = i as usize & 0xfff;
     }
 
     /// Execute subroutine starting at address NNN.
@@ -238,7 +310,8 @@ impl Processor {
 
     /// Add the value KK to the value of register VX.
     fn op_7xkk(&mut self, i: u16) {
-        self.v[(i >> 8) as usize & 0xf] += (i & 0xff) as u8;
+        let v = (i >> 8) as usize & 0xf;
+        self.v[v] = self.v[v].wrapping_add((i & 0xff) as u8);
         self.step();
     }
 
@@ -358,14 +431,18 @@ impl Processor {
     }
 
     /// Skip the following instruction if the key stored in register VX is pressed.
-    fn op_ex9e(&mut self, _i: u16) {
-        // TODO
+    fn op_ex9e(&mut self, i: u16) {
+        if self.keyboard[self.v[(i >> 8) as usize & 0xf] as usize] == 1 {
+            self.step();
+        }
         self.step();
     }
 
     /// Skip the following instruction if the key stored in register VX isn't pressed.
-    fn op_exa1(&mut self, _i: u16) {
-        // TODO
+    fn op_exa1(&mut self, i: u16) {
+        if self.keyboard[self.v[(i >> 8) as usize & 0xf] as usize] == 1 {
+            self.step();
+        }
         self.step();
     }
 
@@ -376,8 +453,13 @@ impl Processor {
     }
 
     /// Wait for a keypress and store the result in register VX
-    fn op_fx0a(&mut self, _i: u16) {
-        // TODO
+    fn op_fx0a(&mut self, i: u16) {
+        // wait for a key to be pressed, and store the value in register VX
+        if self.keyboard.iter().all(|&x| x == 0) {
+            return;
+        }
+        let key = self.keyboard.iter().position(|&x| x == 1);
+        self.v[(i >> 8) as usize & 0xf] = key.unwrap() as u8;
         self.step();
     }
 
