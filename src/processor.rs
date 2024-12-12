@@ -1,4 +1,7 @@
-use crate::{drivers::DisplayDriver, stack::Stack};
+use crate::{
+    drivers::{AudioDriver, DisplayDriver},
+    stack::Stack,
+};
 use std::{fs, usize};
 
 const PROGRAM_START: usize = 0x200;
@@ -35,6 +38,7 @@ pub struct Processor {
     memory: [u8; MEMORY_SIZE],
     stack: Stack<usize>,
     display: [[u8; SCREEN_WIDTH]; SCREEN_HEIGHT],
+    display_change: bool,
     _keyboard: [u8; 16],
     pc: usize,
     v: [u8; 16],
@@ -49,6 +53,7 @@ impl Processor {
             memory: [0; MEMORY_SIZE],
             stack: Stack::new(),
             display: [[0; SCREEN_WIDTH]; SCREEN_HEIGHT],
+            display_change: false,
             _keyboard: [0; 16],
             pc: PROGRAM_START,
             v: [0; 16],
@@ -77,7 +82,12 @@ impl Processor {
     }
 
     pub fn run_program(&mut self) {
-        let mut display_driver = DisplayDriver::new();
+        println!("Running program...");
+        let sdl_context = sdl2::init().unwrap();
+        let audio_subsystem = sdl_context.audio().unwrap();
+
+        let mut display_driver = DisplayDriver::new(sdl_context);
+        let audio_driver = AudioDriver::new(&audio_subsystem, 480.0, 1.).unwrap();
 
         loop {
             let instruction =
@@ -85,16 +95,28 @@ impl Processor {
             self.execute_instruction(instruction);
 
             display_driver.handle_events();
-            display_driver.draw(&self.display);
+            if self.display_change {
+                display_driver.draw(&self.display);
+                self.display_change = false;
+            }
 
             if self.delay_timer > 0 {
                 self.delay_timer -= 1;
             }
+            self.sound_timer = 1;
             if self.sound_timer > 0 {
-                // TODO: Play sound
+                if !audio_driver.is_active() {
+                    // TODO: No sound is playing. Can't figure out why.
+                    println!("Starting sound...");
+                    audio_driver.toggle();
+                }
                 self.sound_timer -= 1;
+            } else if audio_driver.is_active() {
+                println!("Stopping sound...");
+                audio_driver.toggle();
             }
-            // TODO: How do I keep this running at 60Hz?
+
+            // Maintain 60Hz operation
         }
     }
 
@@ -164,6 +186,7 @@ impl Processor {
     /// Clear the screen.
     fn op_00e0(&mut self, _i: u16) {
         self.display = [[0; SCREEN_WIDTH]; SCREEN_HEIGHT];
+        self.display_change = true;
         self.step();
     }
 
@@ -330,6 +353,7 @@ impl Processor {
                 }
             }
         }
+        self.display_change = true;
         self.step();
     }
 

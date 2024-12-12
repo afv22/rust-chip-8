@@ -12,8 +12,7 @@ pub struct DisplayDriver {
 }
 
 impl DisplayDriver {
-    pub fn new() -> Self {
-        let context = sdl2::init().unwrap();
+    pub fn new(context: sdl2::Sdl) -> Self {
         let video_subsystem = context.video().unwrap();
         let window = video_subsystem
             .window("Chip-8 Emulator", 64 * 8, 32 * 8)
