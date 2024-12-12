@@ -2,7 +2,7 @@ mod drivers;
 mod processor;
 mod stack;
 
-const PROGRAM: &str = "./programs/Breakout [Carmelo Cortez, 1979].ch8";
+const PROGRAM: &str = "./programs/pong.rom";
 
 fn main() {
     let mut vm = processor::Processor::new();

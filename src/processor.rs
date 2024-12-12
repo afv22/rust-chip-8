@@ -124,6 +124,7 @@ impl Processor {
                 ((self.memory[self.pc] as u16) << 8) | self.memory[self.pc + 1] as u16;
 
             self.execute_instruction(instruction);
+            // println!("Instruction: {:04x}", instruction);
 
             self.handle_events();
             if self.display_change {
@@ -265,6 +266,7 @@ impl Processor {
     /// Return from a subroutine.
     fn op_00ee(&mut self, _i: u16) {
         self.pc = self.stack.pop().unwrap();
+        self.step();
     }
 
     /// Jump to address NNN.
