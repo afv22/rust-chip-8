@@ -1,62 +1,62 @@
-use sdl2::pixels;
+// A display driver for chip-8 using SDL2
+use sdl2::event::Event;
+use sdl2::keyboard::Keycode;
+use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::Canvas;
 use sdl2::video::Window;
-use sdl2::Sdl;
-
-const SCREEN_WIDTH: usize = 64;
-const SCREEN_HEIGHT: usize = 32;
-
-const SCALE_FACTOR: u32 = 20;
 
 pub struct DisplayDriver {
+    context: sdl2::Sdl,
     canvas: Canvas<Window>,
 }
 
 impl DisplayDriver {
-    pub fn new(context: &Sdl) -> Self {
-        let video_subsys = context.video().unwrap();
-        let window = video_subsys
-            .window(
-                "rust-sdl2_gfx: draw line & FPSManager",
-                SCREEN_WIDTH as u32,
-                SCREEN_HEIGHT as u32,
-            )
+    pub fn new() -> Self {
+        let context = sdl2::init().unwrap();
+        let video_subsystem = context.video().unwrap();
+        let window = video_subsystem
+            .window("Chip-8 Emulator", 64 * 8, 32 * 8)
             .position_centered()
-            .opengl()
             .build()
             .unwrap();
-
         let mut canvas = window.into_canvas().build().unwrap();
-        
-        canvas.set_draw_color(pixels::Color::RGB(0, 0, 0));
+        canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
         canvas.present();
-        println!("Successfully built canvas");
-
-        DisplayDriver { canvas }
+        Self { context, canvas }
     }
 
-    pub fn draw(&mut self, pixels: &[[u8; SCREEN_WIDTH]; SCREEN_HEIGHT]) {
-        for (y, row) in pixels.iter().enumerate() {
-            for (x, &col) in row.iter().enumerate() {
-                let x = (x as u32) * SCALE_FACTOR;
-                let y = (y as u32) * SCALE_FACTOR;
-
-                self.canvas.set_draw_color(color(col));
-                self.canvas
-                    .fill_rect(Rect::new(x as i32, y as i32, SCALE_FACTOR, SCALE_FACTOR))
-                    .unwrap();
+    pub fn draw(&mut self, display: &[[u8; 64]; 32]) {
+        self.canvas.set_draw_color(Color::RGB(0, 0, 0));
+        self.canvas.clear();
+        for y in 0..32 {
+            for x in 0..64 {
+                if display[y][x] == 1 {
+                    self.canvas.set_draw_color(Color::RGB(255, 255, 255));
+                    self.canvas
+                        .fill_rect(Rect::new(x as i32 * 8, y as i32 * 8, 8, 8))
+                        .unwrap();
+                }
             }
         }
         self.canvas.present();
     }
-}
 
-fn color(value: u8) -> pixels::Color {
-    if value == 0 {
-        pixels::Color::RGB(0, 0, 0)
-    } else {
-        pixels::Color::RGB(0, 250, 0)
+    pub fn handle_events(&mut self) {
+        for event in self.context.event_pump().unwrap().poll_iter() {
+            match event {
+                Event::Quit { .. } => {
+                    std::process::exit(0);
+                }
+                Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => {
+                    std::process::exit(0);
+                }
+                _ => {}
+            }
+        }
     }
 }

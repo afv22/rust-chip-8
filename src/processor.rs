@@ -1,4 +1,4 @@
-use crate::stack::Stack;
+use crate::{drivers::DisplayDriver, stack::Stack};
 use std::{fs, usize};
 
 const PROGRAM_START: usize = 0x200;
@@ -44,8 +44,8 @@ pub struct Processor {
 }
 
 impl Processor {
-    pub fn new() -> Processor {
-        let mut p = Processor {
+    pub fn new() -> Self {
+        let mut p = Self {
             memory: [0; MEMORY_SIZE],
             stack: Stack::new(),
             display: [[0; SCREEN_WIDTH]; SCREEN_HEIGHT],
@@ -77,10 +77,15 @@ impl Processor {
     }
 
     pub fn run_program(&mut self) {
+        let mut display_driver = DisplayDriver::new();
+
         loop {
             let instruction =
                 ((self.memory[self.pc] as u16) << 8) | self.memory[self.pc + 1] as u16;
             self.execute_instruction(instruction);
+
+            display_driver.handle_events();
+            display_driver.draw(&self.display);
 
             if self.delay_timer > 0 {
                 self.delay_timer -= 1;
@@ -329,13 +334,13 @@ impl Processor {
     }
 
     /// Skip the following instruction if the key stored in register VX is pressed.
-    fn op_ex9e(&mut self, i: u16) {
+    fn op_ex9e(&mut self, _i: u16) {
         // TODO
         self.step();
     }
 
     /// Skip the following instruction if the key stored in register VX isn't pressed.
-    fn op_exa1(&mut self, i: u16) {
+    fn op_exa1(&mut self, _i: u16) {
         // TODO
         self.step();
     }
@@ -347,7 +352,7 @@ impl Processor {
     }
 
     /// Wait for a keypress and store the result in register VX
-    fn op_fx0a(&mut self, i: u16) {
+    fn op_fx0a(&mut self, _i: u16) {
         // TODO
         self.step();
     }

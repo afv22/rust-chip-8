@@ -1,1 +1,3 @@
-pub mod display_driver;
+mod display_driver;
+
+pub use display_driver::DisplayDriver;
