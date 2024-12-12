@@ -1,14 +1,18 @@
+#[derive(Debug, PartialEq)]
 pub enum Instruction {
     ADDV(usize, usize),
     ADD(usize, u8),
     ANDV(usize, usize),
-    CALL(u16),
+    CALL(usize),
     CLS(),
+    DRW(usize, usize, u8),
     INVALID(),
-    JMP(u16),
+    JMP(usize),
+    LDI(u16),
     ORV(usize, usize),
     NOP(),
     RET(),
+    RND(usize, u8),
     SE(usize, u8),
     SNE(usize, u8),
     SET(usize, u8),
@@ -17,6 +21,4 @@ pub enum Instruction {
     SUBV(usize, usize),
     SUBNV(usize, usize),
     XORV(usize, usize),
-    UNIMPLEMENTED(),
 }
-
