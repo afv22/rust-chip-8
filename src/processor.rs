@@ -1,10 +1,30 @@
-use crate::{drivers::display_driver::DisplayDriver, stack::Stack};
+use crate::stack::Stack;
 use std::{fs, usize};
 
 const PROGRAM_START: usize = 0x200;
 const MEMORY_SIZE: usize = 4096;
 const SCREEN_WIDTH: usize = 64;
 const SCREEN_HEIGHT: usize = 32;
+const SPRITE_START: usize = 0x50;
+
+pub const FONT_SPRITES: [u8; 80] = [
+    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+    0x20, 0x60, 0x20, 0x20, 0x70, // 1
+    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+    0xF0, 0x80, 0xF0, 0x80, 0x80, // F
+];
 
 fn digit(hex: u16, place: u8) -> usize {
     let offset = place << 2;
@@ -14,8 +34,7 @@ fn digit(hex: u16, place: u8) -> usize {
 pub struct Processor {
     memory: [u8; MEMORY_SIZE],
     stack: Stack<usize>,
-    pixel_map: [[u8; SCREEN_WIDTH]; SCREEN_HEIGHT],
-    _display: DisplayDriver,
+    display: [[u8; SCREEN_WIDTH]; SCREEN_HEIGHT],
     _keyboard: [u8; 16],
     pc: usize,
     v: [u8; 16],
@@ -26,19 +45,24 @@ pub struct Processor {
 
 impl Processor {
     pub fn new() -> Processor {
-        let display = DisplayDriver::new(&sdl2::init().unwrap());
-        Processor {
+        let mut p = Processor {
             memory: [0; MEMORY_SIZE],
             stack: Stack::new(),
-            pixel_map: [[0; SCREEN_WIDTH]; SCREEN_HEIGHT],
-            _display: display,
+            display: [[0; SCREEN_WIDTH]; SCREEN_HEIGHT],
             _keyboard: [0; 16],
             pc: PROGRAM_START,
             v: [0; 16],
             i: 0,
             delay_timer: 0,
             sound_timer: 0,
+        };
+
+        // Load the font sprites into memory
+        for (pos, sprite) in FONT_SPRITES.iter().enumerate() {
+            p.memory[SPRITE_START + pos] = *sprite;
         }
+
+        p
     }
 
     fn step(&mut self) {
@@ -57,6 +81,15 @@ impl Processor {
             let instruction =
                 ((self.memory[self.pc] as u16) << 8) | self.memory[self.pc + 1] as u16;
             self.execute_instruction(instruction);
+
+            if self.delay_timer > 0 {
+                self.delay_timer -= 1;
+            }
+            if self.sound_timer > 0 {
+                // TODO: Play sound
+                self.sound_timer -= 1;
+            }
+            // TODO: How do I keep this running at 60Hz?
         }
     }
 
@@ -74,7 +107,7 @@ impl Processor {
             0x5 => match digit(instruction, 0) {
                 0x0 => self.op_5xy0(instruction),
                 _ => {}
-            }
+            },
             0x6 => self.op_6xkk(instruction),
             0x7 => self.op_7xkk(instruction),
             0x8 => match digit(instruction, 0) {
@@ -92,7 +125,7 @@ impl Processor {
             0x9 => match digit(instruction, 0) {
                 0x0 => self.op_9xy0(instruction),
                 _ => {}
-            }
+            },
             0xa => self.op_annn(instruction),
             0xb => self.op_bnnn(instruction),
             0xc => self.op_cxkk(instruction),
@@ -125,7 +158,7 @@ impl Processor {
 
     /// Clear the screen.
     fn op_00e0(&mut self, _i: u16) {
-        self.pixel_map = [[0; SCREEN_WIDTH]; SCREEN_HEIGHT];
+        self.display = [[0; SCREEN_WIDTH]; SCREEN_HEIGHT];
         self.step();
     }
 
@@ -271,9 +304,27 @@ impl Processor {
         self.step();
     }
 
-    /// Display a sprite at position VX, VY with a width of 8 pixels and a height of N pixels.
+    /// Display the sprite stored at the address held in register I at
+    /// position VX, VY with a width of 8 pixels and a height of N pixels.
     fn op_dxyn(&mut self, i: u16) {
-        // TODO
+        let x = self.v[(i >> 8) as usize & 0xf] as usize;
+        let y = self.v[(i >> 4) as usize & 0xf] as usize;
+        self.v[0xf] = 0;
+
+        for row in 0..(i & 0xf) as usize {
+            let sprite_byte = self.memory[self.i as usize + row];
+            for col in 0..8 {
+                let sprite_pixel = sprite_byte >> (7 - col) & 0x1;
+                let x_coord = (x + col) % SCREEN_WIDTH;
+                let y_coord = (y + row) % SCREEN_HEIGHT;
+                if sprite_pixel == 1 {
+                    if self.display[y_coord][x_coord] == 1 {
+                        self.v[0xf] = 1;
+                    }
+                    self.display[y_coord][x_coord] ^= 1;
+                }
+            }
+        }
         self.step();
     }
 
@@ -321,25 +372,33 @@ impl Processor {
 
     /// Set I to the location of the sprite for the character in register VX.
     fn op_fx29(&mut self, i: u16) {
-        // TODO
+        self.i = self.v[(i >> 8) as usize & 0xf] as u16 * 5;
         self.step();
     }
 
     /// Store the binary-coded decimal representation of the value of register VX at addresses I, I+1, and I+2.
     fn op_fx33(&mut self, i: u16) {
-        // TODO
+        self.memory[self.i as usize] = self.v[(i >> 8) as usize & 0xf] / 100;
+        self.memory[self.i as usize + 1] = (self.v[(i >> 8) as usize & 0xf] / 10) % 10;
+        self.memory[self.i as usize + 2] = self.v[(i >> 8) as usize & 0xf] % 10;
         self.step();
     }
 
     /// Store the values of registers V0 to VX inclusive in memory starting at address I. I is set to I + X + 1 after operation
     fn op_fx55(&mut self, i: u16) {
-        // TODO
+        for x in 0..((i >> 8) as usize & 0xf) {
+            self.memory[self.i as usize + x] = self.v[x];
+            self.i += 1;
+        }
         self.step();
     }
 
     /// Fill registers V0 to VX inclusive with values from memory starting at address I. I is set to I + X + 1 after operation
     fn op_fx65(&mut self, i: u16) {
-        // TODO
+        for x in 0..((i >> 8) as usize & 0xf) {
+            self.v[x] = self.memory[self.i as usize + x];
+            self.i += 1;
+        }
         self.step();
     }
 }
