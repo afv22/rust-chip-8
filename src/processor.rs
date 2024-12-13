@@ -4,7 +4,7 @@ use crate::{
 };
 use sdl2::{event::Event, keyboard::Keycode};
 use std::{
-    fs, thread,
+    fs, process, thread,
     time::{Duration, Instant},
     usize,
 };
@@ -14,6 +14,7 @@ const MEMORY_SIZE: usize = 4096;
 const SCREEN_WIDTH: usize = 64;
 const SCREEN_HEIGHT: usize = 32;
 const SPRITE_START: usize = 0x50;
+const FRAME_RATE: f64 = 120.;
 
 pub const FONT_SPRITES: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -109,22 +110,17 @@ impl Processor {
     }
 
     pub fn run_program(&mut self) {
-        println!("Running program...");
-        let target_frame_duration = Duration::from_secs_f64(1.0 / 60.0);
-
-        let audio_subsystem = self.sdl_context.audio().unwrap();
+        let target_frame_duration = Duration::from_secs_f64(1. / FRAME_RATE);
 
         let mut display_driver = DisplayDriver::new(&self.sdl_context);
-        let audio_driver = AudioDriver::new(&audio_subsystem, 480.0, 1.).unwrap();
+        let audio_driver = AudioDriver::new(&self.sdl_context, 480.0, 0.25).unwrap();
 
         loop {
             let frame_start = Instant::now();
 
             let instruction =
                 ((self.memory[self.pc] as u16) << 8) | self.memory[self.pc + 1] as u16;
-
             self.execute_instruction(instruction);
-            // println!("Instruction: {:04x}", instruction);
 
             self.handle_events();
             if self.display_change {
@@ -135,17 +131,13 @@ impl Processor {
             if self.delay_timer > 0 {
                 self.delay_timer -= 1;
             }
-            self.sound_timer = 1;
+
             if self.sound_timer > 0 {
-                if !audio_driver.is_active() {
-                    // TODO: No sound is playing. Can't figure out why.
-                    println!("Starting sound...");
-                    audio_driver.toggle();
-                }
+                // TODO: No sound is playing. Can't figure out why.
+                audio_driver.start();
                 self.sound_timer -= 1;
             } else if audio_driver.is_active() {
-                println!("Stopping sound...");
-                audio_driver.toggle();
+                audio_driver.stop();
             }
 
             // Maintain 60 frames per second
@@ -160,15 +152,14 @@ impl Processor {
         for event in self.sdl_context.event_pump().unwrap().poll_iter() {
             match event {
                 Event::Quit { .. } => {
-                    std::process::exit(0);
+                    process::exit(0);
                 }
                 Event::KeyDown {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => {
-                    std::process::exit(0);
+                    process::exit(0);
                 }
-                // Handle key presses for all hex keys
                 Event::KeyDown {
                     keycode: Some(key), ..
                 } => {
@@ -176,6 +167,7 @@ impl Processor {
                     if key == 0xff {
                         continue;
                     }
+                    // Only stores one key at a time. Could update this to support multiple
                     self.keyboard = [0; 16];
                     self.keyboard[key as usize] = 1;
                 }
@@ -491,9 +483,10 @@ impl Processor {
 
     /// Store the binary-coded decimal representation of the value of register VX at addresses I, I+1, and I+2.
     fn op_fx33(&mut self, i: u16) {
-        self.memory[self.i as usize] = self.v[(i >> 8) as usize & 0xf] / 100;
-        self.memory[self.i as usize + 1] = (self.v[(i >> 8) as usize & 0xf] / 10) % 10;
-        self.memory[self.i as usize + 2] = self.v[(i >> 8) as usize & 0xf] % 10;
+        let x = self.v[(i >> 8) as usize & 0xf];
+        self.memory[self.i as usize] = x / 100;
+        self.memory[self.i as usize + 1] = (x / 10) % 10;
+        self.memory[self.i as usize + 2] = x % 10;
         self.step();
     }
 
