@@ -1,6 +1,5 @@
 mod drivers;
 mod processor;
-mod stack;
 
 fn main() {
     // TODO: Handle malformed arguments

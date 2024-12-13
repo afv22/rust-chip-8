@@ -1,7 +1,4 @@
-use crate::{
-    drivers::{AudioDriver, DisplayDriver},
-    stack::Stack,
-};
+use crate::drivers::{AudioDriver, DisplayDriver};
 use sdl2::{event::Event, keyboard::Keycode};
 use std::{
     fs, process, thread,
@@ -61,12 +58,13 @@ fn parse_key(key: Keycode) -> u8 {
 
 pub struct Processor {
     memory: [u8; MEMORY_SIZE],
-    stack: Stack<usize>,
+    stack: [usize; 16],
     display: [[u8; SCREEN_WIDTH]; SCREEN_HEIGHT],
     display_change: bool,
     sdl_context: sdl2::Sdl,
     keyboard: [u8; 16],
     pc: usize,
+    sp: usize,
     v: [u8; 16],
     i: u16,
     delay_timer: u8,
@@ -78,12 +76,13 @@ impl Processor {
         let sdl_context = sdl2::init().unwrap();
         let mut p = Self {
             memory: [0; MEMORY_SIZE],
-            stack: Stack::new(),
+            stack: [0; 16],
             display: [[0; SCREEN_WIDTH]; SCREEN_HEIGHT],
             display_change: false,
             sdl_context,
             keyboard: [0; 16],
             pc: PROGRAM_START,
+            sp: 0,
             v: [0; 16],
             i: 0,
             delay_timer: 0,
@@ -257,7 +256,8 @@ impl Processor {
 
     /// Return from a subroutine.
     fn op_00ee(&mut self, _i: u16) {
-        self.pc = self.stack.pop().unwrap();
+        self.sp -= 1;
+        self.pc = self.stack[self.sp];
         self.step();
     }
 
@@ -268,7 +268,8 @@ impl Processor {
 
     /// Execute subroutine starting at address NNN.
     fn op_2nnn(&mut self, i: u16) {
-        self.stack.push(self.pc);
+        self.stack[self.sp] = self.pc;
+        self.sp += 1;
         self.pc = i as usize & 0xfff;
     }
 
