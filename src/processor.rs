@@ -61,7 +61,6 @@ pub struct Processor {
     stack: [usize; 16],
     display: [[u8; SCREEN_WIDTH]; SCREEN_HEIGHT],
     display_change: bool,
-    sdl_context: sdl2::Sdl,
     keyboard: [u8; 16],
     pc: usize,
     sp: usize,
@@ -73,13 +72,11 @@ pub struct Processor {
 
 impl Processor {
     pub fn new() -> Self {
-        let sdl_context = sdl2::init().unwrap();
         let mut p = Self {
             memory: [0; MEMORY_SIZE],
             stack: [0; 16],
             display: [[0; SCREEN_WIDTH]; SCREEN_HEIGHT],
             display_change: false,
-            sdl_context,
             keyboard: [0; 16],
             pc: PROGRAM_START,
             sp: 0,
@@ -111,8 +108,9 @@ impl Processor {
     pub fn run_program(&mut self) {
         let target_frame_duration = Duration::from_secs_f64(1. / FRAME_RATE);
 
-        let mut display_driver = DisplayDriver::new(&self.sdl_context);
-        let audio_driver = AudioDriver::new(&self.sdl_context, 480.0, 0.25).unwrap();
+        let sdl_context = sdl2::init().unwrap();
+        let mut display_driver = DisplayDriver::new(&sdl_context);
+        let audio_driver = AudioDriver::new(&sdl_context, 480.0, 0.25).unwrap();
 
         loop {
             let frame_start = Instant::now();
@@ -121,7 +119,7 @@ impl Processor {
                 ((self.memory[self.pc] as u16) << 8) | self.memory[self.pc + 1] as u16;
             self.execute_instruction(instruction);
 
-            self.handle_events();
+            self.handle_events(&sdl_context);
             if self.display_change {
                 display_driver.draw(&self.display);
                 self.display_change = false;
@@ -132,14 +130,13 @@ impl Processor {
             }
 
             if self.sound_timer > 0 {
-                // TODO: No sound is playing. Can't figure out why.
                 audio_driver.start();
                 self.sound_timer -= 1;
             } else if audio_driver.is_active() {
                 audio_driver.stop();
             }
 
-            // Maintain 60 frames per second
+            // Maintain a standard frame rate
             let elapsed = frame_start.elapsed();
             if let Some(remaining) = target_frame_duration.checked_sub(elapsed) {
                 thread::sleep(remaining);
@@ -147,8 +144,8 @@ impl Processor {
         }
     }
 
-    pub fn handle_events(&mut self) {
-        for event in self.sdl_context.event_pump().unwrap().poll_iter() {
+    pub fn handle_events(&mut self, sdl_context: &sdl2::Sdl) {
+        for event in sdl_context.event_pump().unwrap().poll_iter() {
             match event {
                 Event::Quit { .. } => {
                     process::exit(0);
